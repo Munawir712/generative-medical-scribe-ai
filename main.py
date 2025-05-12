@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 import logging
+import json
 from prompt_builder import build_cppt_prompt
 from ai_services.gemini_openrouter import generate_from_gemini
 from ai_services.deepseek import generate_from_deepseek
@@ -29,6 +30,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class Diagnosis(BaseModel):
+    code_icd: str
+    diagnosa: str
+
+class Procedure(BaseModel):
+    code_icd: str
+    diagnosa: str
+
+class CPPTData(BaseModel):
+    subject: str
+    object: str
+    assessment: str
+    plan: str
+    instruction: str
+    evaluation: str
+    rekom_diagnosa_utama: List[Diagnosis]
+    rekom_prosedur_utama: List[Procedure]
+
+class CPPTResponse(BaseModel):
+    code: int = Field(..., description="Response code")
+    message: str = Field(..., description="Response message")
+    data: Optional[CPPTData] = Field(None, description="Response data")
+
 class CPPTRequest(BaseModel):
     input_text: str = Field(..., min_length=10, description="Input teks dari dokter")
     provider: str = Field(default="gemini", description="Provider AI yang digunakan (gemini/deepseek)")
@@ -44,14 +68,17 @@ class CPPTRequest(BaseModel):
 @app.get("/")
 async def root():
     return {
+        "code": 200,
         "message": "Selamat datang di Medical Scribe AI API",
-        "endpoints": {
-            "/generate-cppt": "POST - Generate catatan CPPT",
-            "/docs": "GET - Dokumentasi API (Swagger UI)"
+        "data": {
+            "endpoints": {
+                "/generate-cppt": "POST - Generate catatan CPPT",
+                "/docs": "GET - Dokumentasi API (Swagger UI)"
+            }
         }
     }
 
-@app.post("/generate-cppt", response_model=dict)
+@app.post("/generate-cppt", response_model=CPPTResponse)
 async def generate_cppt(request: CPPTRequest):
     """
     Generate catatan CPPT berdasarkan input dokter.
@@ -60,7 +87,7 @@ async def generate_cppt(request: CPPTRequest):
         request (CPPTRequest): Request body yang berisi input teks dan provider AI
         
     Returns:
-        dict: Hasil generate CPPT dalam format SOAP
+        CPPTResponse: Hasil generate CPPT dalam format terstruktur
         
     Raises:
         HTTPException: Jika terjadi error saat generate CPPT
@@ -74,23 +101,48 @@ async def generate_cppt(request: CPPTRequest):
         elif request.provider.lower() == "deepseek":
             result = generate_from_deepseek(prompt)
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="Provider AI tidak dikenal. Gunakan 'gemini' atau 'deepseek'"
+            return CPPTResponse(
+                code=400,
+                message="Provider AI tidak dikenal. Gunakan 'gemini' atau 'deepseek'"
             )
 
-        logger.info("CPPT generated successfully")
-        return {
-            "status": "success",
-            "result": result,
-            "provider": request.provider
-        }
+        # Parse the JSON response
+        try:
+            parsed_result = json.loads(result.replace("```json", "").replace("```", ""))
+            if "data" not in parsed_result:
+                return CPPTResponse(
+                    code=500,
+                    message="Response tidak memiliki field 'data'"
+                )
+            
+            # Validate the response structure
+            response_data = CPPTResponse(
+                code=200,
+                message="CPPT berhasil digenerate",
+                data=CPPTData(**parsed_result["data"])
+            )
+            
+            logger.info("CPPT generated successfully")
+            return response_data
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response: {str(e)}")
+            return CPPTResponse(
+                code=500,
+                message="Response dari AI tidak dalam format JSON yang valid"
+            )
+        except ValueError as e:
+            logger.error(f"Invalid response structure: {str(e)}")
+            return CPPTResponse(
+                code=500,
+                message=f"Struktur response tidak valid: {str(e)}"
+            )
 
     except Exception as e:
         logger.error(f"Error generating CPPT: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Terjadi kesalahan saat generate CPPT: {str(e)}"
+        return CPPTResponse(
+            code=500,
+            message=f"Terjadi kesalahan saat generate CPPT: {str(e)}"
         )
 
 if __name__ == "__main__":
