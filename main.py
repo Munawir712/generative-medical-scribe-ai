@@ -5,7 +5,8 @@ from typing import Optional, List
 import logging
 import json
 from prompt_builder import build_cppt_prompt
-from ai_services.gemini_openrouter import generate_from_gemini
+# from ai_services.gemini_openrouter import generate_from_gemini
+from ai_services.gemini import generate_from_gemini
 from ai_services.deepseek import generate_from_deepseek
 
 # Configure logging
@@ -99,7 +100,7 @@ async def generate_cppt(request: CPPTRequest):
         if request.provider.lower() == "gemini":
             result = generate_from_gemini(prompt)
         elif request.provider.lower() == "deepseek":
-            result = generate_from_deepseek(prompt)
+            result = generate_from_deepseek(prompt,False)
         else:
             return CPPTResponse(
                 code=400,

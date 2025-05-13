@@ -17,14 +17,15 @@ if not DEEPSEEK_API_KEY:
 
 # API Configuration
 DEEPSEEK_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEEPSEEK_MODEL = "deepseek/deepseek-chat-v3-0324:free"
+DEEPSEEK_MODEL = "deepseek/deepseek-r1:free"
 
-def generate_from_deepseek(prompt: str) -> str:
+def generate_from_deepseek(prompt: str, include_reasoning: bool = True) -> str:
     """
     Generate text using Deepseek AI model.
     
     Args:
         prompt (str): The input prompt for the model
+        include_reasoning (bool): Whether to include reasoning in the response
         
     Returns:
         str: The generated text response
@@ -38,6 +39,10 @@ def generate_from_deepseek(prompt: str) -> str:
             "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
             "Content-Type": "application/json"
         }
+        
+        # Modify prompt based on reasoning preference
+        if not include_reasoning:
+            prompt = f"{prompt}\n\nPlease provide your response without any reasoning or explanation."
         
         payload = {
             "model": DEEPSEEK_MODEL,
@@ -53,6 +58,10 @@ def generate_from_deepseek(prompt: str) -> str:
         response.raise_for_status()
         
         result = response.json()
+
+        if result.get("error"):
+            raise Exception(f"Error from Deepseek: {result.get('error').get('message')}")
+        
         if not result.get("choices"):
             raise Exception("No choices in Deepseek response")
             
